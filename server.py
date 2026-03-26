@@ -44,10 +44,12 @@ def get_set_json(database, set_id):
         return json.dumps({"error": "Set not found"}, indent=4)
     
     set_data = {
-        "id": set_rows[0][0],
-        "name": set_rows[0][1],
-        "year": set_rows[0][2],
-        "category": set_rows[0][3],
+        "set": {
+            "id": set_rows[0][0],
+            "name": set_rows[0][1],
+            "year": set_rows[0][2],
+            "category": set_rows[0][3],
+            },
         "inventory": [],
     }
     
@@ -58,6 +60,26 @@ def get_set_json(database, set_id):
             "count": brick[2],
         })
     return json.dumps(set_data, indent=4)
+
+def get_set_binary(database, set_id):
+    query_set = "SELECT id, name, year, category FROM lego_set WHERE id = %s"
+    query_inventory = "SELECT brick_type_id, color_id, count FROM lego_inventory WHERE set_id = %s"
+
+    set_rows = database.execute_and_fetch_all(query_set, (set_id,))
+    if not set_rows:
+        return b"ERROR: Set not found"
+    
+    set_id, name, year, category = set_rows[0]
+
+    lines = []
+    lines.append(f"SET;{set_id};{name};{year};{category}")
+
+    inventory_rows = database.execute_and_fetch_all(query_inventory, (set_id,))
+    for brick_type_id, color_id, count in inventory_rows:
+        lines.append(f"BRICK;{brick_type_id};{color_id};{count}")
+
+    text = "\n".join(lines)
+    return text.encode("utf-8")
 
 @app.route("/")
 def index():
@@ -92,6 +114,11 @@ def api_set():
     json_output = get_set_json(DB, set_id)
     return Response(json_output, content_type="application/json")
 
+@app.route("/api/setfile")
+def api_setfile():
+    set_id = request.args.get("id")
+    binary_output = get_set_binary(DB, set_id)
+    return Response(binary_output, content_type="application/octet-stream")
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)
