@@ -5,6 +5,7 @@ import gzip
 from flask import Flask, Response, request
 from time import perf_counter
 from database import Database
+from collections import OrderedDict
 
 app = Flask(__name__)
 
@@ -16,19 +17,24 @@ DB_CONFIG = {
     "password": "bricks",
 }
 
+SET_CACHE = OrderedDict()
+MAX_CACHE_SIZE = 100
+
 DB = Database(config=DB_CONFIG)
 
 def get_all_sets_html(database, meta_charset):
     with open("templates/sets.html", encoding="utf-8") as f:
         template = f.read()
+    query = "SELECT id, name FROM lego_set"
+    rows_data = database.execute_and_fetch_all(query)
     row_parts = [] 
     start_time = perf_counter()
-    for row in cur.fetchall(): 
+    for row in rows_data(): 
         html_safe_id = html.escape(row[0]) 
         html_safe_name = html.escape(row[1])
         row_parts.append(f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td><td>{html_safe_name}</td></tr>\n')
-        rows = "".join(row_parts) 
-        
+    rows = "".join(row_parts) 
+
     print(f"Time to render all sets: {perf_counter() - start_time}")
     return template.replace("{META_CHARSET}", meta_charset).replace("{ROWS}", rows)
 
@@ -82,6 +88,18 @@ def get_set_binary(database, set_id):
     text = "\n".join(lines)
     return text.encode("utf-8")
 
+def get_cached_set_json(set_id): 
+    if set_id in SET_CACHE:
+        SET_CACHE.move_to_end(set_id)
+        return SET_CACHE[set_id]
+    json_output = get_set_json(DB, set_id)
+    SET_CACHE[set_id] = json_output
+    SET_CACHE.move_to_end(set_id)
+
+    if len(SET_CACHE) > MAX_CACHE_SIZE:
+        SET_CACHE.popitem(last=False)
+    return json_output
+
 @app.route("/")
 def index():
     with open("templates/index.html", encoding="utf-8") as f:
@@ -98,8 +116,13 @@ def sets():
     html_output = get_all_sets_html(DB, meta_charset)
     body = html_output.encode(encoding)
     compressed_body = gzip.compress(body)
-    return Response(compressed_body, content_type=f"text/html; charset={encoding}", 
-                    headers={"Content-Encoding": "gzip"})
+    response = Response(
+    compressed_body,
+    content_type=f"text/html; charset={encoding}",
+    headers={"Content-Encoding": "gzip"},
+    )
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return response
 
 
 @app.route("/set")
@@ -110,10 +133,10 @@ def lego_set_page():
 
 
 @app.route("/api/set")
-def api_set():
-    set_id = request.args.get("id")
-    json_output = get_set_json(DB, set_id)
-    return Response(json_output, content_type="application/json")
+def apiSet():
+    set_id = request.args.get("id") 
+    json_result = get_cached_set_json(set_id) 
+    return Response(json_result, content_type="application/json") 
 
 @app.route("/api/setfile")
 def api_setfile():
