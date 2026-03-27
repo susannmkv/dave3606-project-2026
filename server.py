@@ -21,13 +21,14 @@ DB = Database(config=DB_CONFIG)
 def get_all_sets_html(database, meta_charset):
     with open("templates/sets.html", encoding="utf-8") as f:
         template = f.read()
-    rows = ""
+    row_parts = [] 
     start_time = perf_counter()
-    query = "SELECT id, name FROM lego_set ORDER BY id"
-    for row in database.execute_and_fetch_all(query):
-        html_safe_id = html.escape(row[0])
+    for row in cur.fetchall(): 
+        html_safe_id = html.escape(row[0]) 
         html_safe_name = html.escape(row[1])
-        rows+= f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td><td>{html_safe_name}</td></tr>\n'
+        row_parts.append(f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td><td>{html_safe_name}</td></tr>\n')
+        rows = "".join(row_parts) 
+        
     print(f"Time to render all sets: {perf_counter() - start_time}")
     return template.replace("{META_CHARSET}", meta_charset).replace("{ROWS}", rows)
 
